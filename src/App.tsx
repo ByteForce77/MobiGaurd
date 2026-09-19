@@ -93,7 +93,11 @@ export default function App() {
 
   // SMS Read Permission State & Banner
   const [smsPermission, setSmsPermission] = useState<'PROMPT' | 'GRANTED' | 'DENIED'>(() => {
-    return (localStorage.getItem('mobiguard_sms_permission') as any) || 'PROMPT';
+    try {
+      return (localStorage.getItem('mobiguard_sms_permission') as any) || 'PROMPT';
+    } catch {
+      return 'PROMPT';
+    }
   });
   const [showPermissionModal, setShowPermissionModal] = useState<boolean>(false);
 
@@ -394,7 +398,11 @@ export default function App() {
   ];
 
   const handleGrantPermission = () => {
-    localStorage.setItem('mobiguard_sms_permission', 'GRANTED');
+    try {
+      localStorage.setItem('mobiguard_sms_permission', 'GRANTED');
+    } catch {
+      // Ignore storage write error
+    }
     setSmsPermission('GRANTED');
     setShowPermissionModal(false);
     setBlockToast('🛡️ SMS Read Access Granted. Live On-Device Fraud Scanner Active.');
@@ -403,7 +411,11 @@ export default function App() {
   };
 
   const handleDenyPermission = () => {
-    localStorage.setItem('mobiguard_sms_permission', 'DENIED');
+    try {
+      localStorage.setItem('mobiguard_sms_permission', 'DENIED');
+    } catch {
+      // Ignore storage write error
+    }
     setSmsPermission('DENIED');
     setShowPermissionModal(false);
   };
