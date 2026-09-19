@@ -22,8 +22,19 @@ function mountMobiGuard() {
   );
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', mountMobiGuard);
-} else {
+let hasMounted = false;
+function safeMount() {
+  if (hasMounted) return;
+  hasMounted = true;
   mountMobiGuard();
+}
+
+if (document.getElementById('root')) {
+  safeMount();
+} else if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', safeMount, { once: true });
+  window.addEventListener('load', safeMount, { once: true });
+  setTimeout(safeMount, 300);
+} else {
+  safeMount();
 }

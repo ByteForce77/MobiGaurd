@@ -504,7 +504,11 @@ export const LocalBlocklistStorage = {
             sampleMessage: 'Dear customer, your KYC is expiring today. Pay ₹99 immediately...'
           }
         ];
-        localStorage.setItem(BLOCKLIST_STORAGE_KEY, JSON.stringify(initial));
+        try {
+          localStorage.setItem(BLOCKLIST_STORAGE_KEY, JSON.stringify(initial));
+        } catch {
+          // Ignore write failure in restricted sandbox
+        }
         return initial;
       }
       return JSON.parse(raw);

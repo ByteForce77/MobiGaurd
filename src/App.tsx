@@ -34,6 +34,7 @@ import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { ReportScamModal } from './components/ReportScamModal';
 import { AboutModal } from './components/AboutModal';
 import { PresentationModeGuide } from './components/PresentationModeGuide';
+import { StartupSplash } from './components/StartupSplash';
 
 type ScreenType = 
   | 'home' 
@@ -57,6 +58,7 @@ type ScreenType =
 type TabType = 'home' | 'scan' | 'history' | 'protection' | 'settings';
 
 export default function App() {
+  const [isInitializing, setIsInitializing] = useState<boolean>(true);
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('home');
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [scanSubMode, setScanSubMode] = useState<'message' | 'qr' | 'screenshot'>('message');
@@ -792,6 +794,10 @@ export default function App() {
       (sender.sampleMessage && sender.sampleMessage.toLowerCase().includes(term));
   });
 
+  if (isInitializing) {
+    return <StartupSplash onComplete={() => setIsInitializing(false)} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-start font-sans select-none antialiased">
       {/* Outer Shell container designed with Android Material 3 Dark-First Aesthetic */}
@@ -805,7 +811,7 @@ export default function App() {
               {deviceTime || 'Protected'}
             </span>
             <span className="text-slate-600">·</span>
-            <span className="text-[10px] text-slate-300 font-medium">Device Sandbox</span>
+            <span className="text-[10px] text-slate-300 font-medium">Web Sandbox</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -838,15 +844,16 @@ export default function App() {
         <div className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-950 border-b border-emerald-900/40 flex items-center justify-between text-[11px]">
           <div className="flex items-center gap-1.5 text-emerald-300">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="font-semibold text-white">Device Protected:</span>
-            <span className="text-slate-300">Privacy Mode Active</span>
+            <span className="font-semibold text-white">Browser Sandbox:</span>
+            <span className="text-slate-300">Local Heuristics Active</span>
           </div>
           <div className="flex items-center gap-1.5">
-            {demoMode && (
-              <span className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-500/30">
-                Demo Data
-              </span>
-            )}
+            <span 
+              className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-500/30"
+              title="Web Prototype: On-device heuristics active; native Android hooks simulated"
+            >
+              Web Prototype
+            </span>
             <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
               {aiMode === 'local' ? 'On-Device AI' : 'Hybrid Gemini'}
             </span>
