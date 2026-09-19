@@ -1,4 +1,13 @@
 import { LocalAiThreatModel, LocalAiInferenceResult } from './localAiModel';
+import { analyzeUrl, extractUrls, UrlAnalysisResult } from './urlAnalyzer';
+
+export type ThreatLevel = 'SAFE' | 'SUSPICIOUS' | 'HIGH RISK';
+
+export interface DetectedTactic {
+  name: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high';
+}
 
 export interface RiskSignals {
   urgency: number;           // 0-100
@@ -21,7 +30,7 @@ export interface UpiDetails {
 export interface AiAnalysisResult {
   available: boolean;
   source: string;
-  verdict: 'GENUINE' | 'SUSPICIOUS' | 'FRAUD RISK';
+  verdict: 'GENUINE' | 'SUSPICIOUS' | 'FRAUD RISK' | 'SAFE' | 'HIGH RISK';
   threatScore: number;
   confidence: number;
   category: string;
@@ -32,33 +41,58 @@ export interface AiAnalysisResult {
   recommendedAction: string;
 }
 
+export interface StructuredRiskAnalysis {
+  threatLevel: ThreatLevel;
+  riskScore: number;
+  summary: string;
+  indicators: string[];
+  suspiciousPhrases: string[];
+  recommendedActions: string[];
+  urlAnalysis?: UrlAnalysisResult;
+  confidence: number;
+}
+
 export interface AnalysisResult {
   score: number;
   verdict: 'GENUINE' | 'SUSPICIOUS' | 'FRAUD RISK';
+  displayVerdict: ThreatLevel;
   confidence: number;
   label: string;
   recommendation: string;
+  recommendedActions: string[];
+  whyFlagged: string;
+  detectedTactics: DetectedTactic[];
   signals: RiskSignals;
+  structuredAnalysis?: StructuredRiskAnalysis;
   upiDetails?: UpiDetails;
+  urlAnalysis?: UrlAnalysisResult;
   inferenceTimeMs: number;
   modelType: 'DistilBERT-TFLite + RuleEngine' | 'RuleEngine-Fallback' | 'Gemini-3.8-Flash + LocalEngine' | 'On-Device Local AI (Transformers.js + WASM)';
   sender?: string;
   isSenderBlocked?: boolean;
   aiAnalysis?: AiAnalysisResult;
   localAiInference?: LocalAiInferenceResult;
+  privacyNotice: string;
 }
 
 export interface HistoryRecord {
   id: string;
   timestamp: number;
   type: 'SMS' | 'QR' | 'SCREENSHOT' | 'URL';
+  threatLevel: ThreatLevel;
+  riskScore: number;
+  summary: string;
   preview: string;
-  verdict: 'GENUINE' | 'SUSPICIOUS' | 'FRAUD RISK';
-  score: number;
   confidence: number;
-  signals: RiskSignals;
-  recommendation: string;
-  rawText: string;
+  // Optional for backward compatibility with existing views
+  verdict?: 'GENUINE' | 'SUSPICIOUS' | 'FRAUD RISK';
+  displayVerdict?: ThreatLevel;
+  score?: number;
+  signals?: RiskSignals;
+  recommendation?: string;
+  recommendedActions?: string[];
+  whyFlagged?: string;
+  rawText?: string;
 }
 
 export const KNOWN_BRANDS = [
@@ -342,30 +376,52 @@ export class RiskScoreEngine {
 export class VerdictEngine {
   static determine(score: number): {
     verdict: 'GENUINE' | 'SUSPICIOUS' | 'FRAUD RISK';
+    displayVerdict: ThreatLevel;
     confidence: number;
     label: string;
     recommendation: string;
+    recommendedActions: string[];
   } {
     if (score <= 30) {
       return {
         verdict: 'GENUINE',
+        displayVerdict: 'SAFE',
         confidence: Math.min(98, Math.max(88, 100 - score)),
-        label: 'No fraud signals detected',
-        recommendation: 'Message matches expected authentic formatting. Note: Always verify unprompted communications independently.'
+        label: 'Safe · No fraud triggers detected',
+        recommendation: 'Message matches expected authentic formatting. Note: Always verify unprompted communications independently.',
+        recommendedActions: [
+          'Verify sender details if the notification was unexpected.',
+          'Never share passwords, OTPs, or PINs even if follow-up messages request them.',
+          'Always use official apps and verified domains for financial transactions.'
+        ]
       };
     } else if (score <= 60) {
       return {
         verdict: 'SUSPICIOUS',
-        confidence: Math.min(85, Math.max(60, 50 + (score - 30))),
-        label: 'Verify before acting',
-        recommendation: 'Unusual characteristics detected. Contact the institution independently using their official app or website.'
+        displayVerdict: 'SUSPICIOUS',
+        confidence: Math.min(85, Math.max(62, 50 + (score - 30))),
+        label: 'Suspicious · Verify before trusting',
+        recommendation: 'Unusual characteristics or mild urgency detected. Contact the institution independently using their official channel.',
+        recommendedActions: [
+          'Do not click any embedded links or open attachments.',
+          'Do not share OTPs, UPI PINs, or NetBanking passwords.',
+          'Verify the sender by calling their official customer service number.',
+          'Contact the organization directly through its verified app or website.'
+        ]
       };
     } else {
       return {
         verdict: 'FRAUD RISK',
-        confidence: Math.min(98, Math.max(85, score)),
-        label: 'Multiple strong fraud indicators detected.',
-        recommendation: 'DO NOT click links, do not dial provided phone numbers, and NEVER enter your UPI PIN. Report to cybercrime.gov.in.'
+        displayVerdict: 'HIGH RISK',
+        confidence: Math.min(99, Math.max(88, score)),
+        label: 'High Risk · Strong scam / phishing indicators',
+        recommendation: 'High probability of fraudulent solicitation or social-engineering trap based on observed indicators.',
+        recommendedActions: [
+          'Do not click the link or visit the destination address.',
+          'Do not share OTP, UPI PIN, passwords, or personal identity details.',
+          'Block this sender immediately on your mobile device.',
+          'Contact the legitimate organization through its official verified channel.'
+        ]
       };
     }
   }
@@ -528,7 +584,7 @@ export async function fetchAiAnalysisApi(text: string, sender?: string): Promise
 
 // Master coordinator running on-device (with optional sender & blocklist validation)
 export class FraudAnalyzer {
-  static analyze(text: string, senderOverride?: string): AnalysisResult {
+  static analyze(text: string, senderOverride?: string, optionalUrl?: string): AnalysisResult {
     const startTime = performance.now();
     const modelInfo = LocalModelAnalyzer.analyze(text);
     const { signals, upiDetails } = RuleEngine.evaluate(text);
@@ -538,6 +594,18 @@ export class FraudAnalyzer {
     signals.urgency = Math.max(signals.urgency, localAi.vectors.urgency);
     signals.contradiction = Math.max(signals.contradiction, localAi.vectors.contradiction);
     signals.template = Math.max(signals.template, localAi.vectors.phishing);
+
+    // 1. URL Analysis (if explicit URL provided or embedded in text)
+    let urlAnalysis: UrlAnalysisResult | undefined = undefined;
+    const candidateUrls = optionalUrl ? [optionalUrl, ...extractUrls(text)] : extractUrls(text);
+    if (candidateUrls.length > 0) {
+      const primaryUrl = candidateUrls[0];
+      urlAnalysis = analyzeUrl(primaryUrl, text);
+      signals.urlRisk = Math.max(signals.urlRisk, urlAnalysis.riskScore);
+      urlAnalysis.findings.forEach(f => {
+        signals.explanations.push(`URL Flag: ${f.title} - ${f.description}`);
+      });
+    }
 
     if (localAi.activatedTokens.length > 0) {
       const topTokensStr = localAi.activatedTokens.map(t => `"${t.token}"`).join(', ');
@@ -555,36 +623,152 @@ export class FraudAnalyzer {
       finalScore = Math.min(100, Math.round(finalScore * 0.4 + localAi.localScore * 0.6));
     }
 
+    // Elevate score if high-risk URL is present
+    if (urlAnalysis && urlAnalysis.riskScore >= 70 && !isOtpOrAlert) {
+      finalScore = Math.max(finalScore, Math.round(urlAnalysis.riskScore * 0.85));
+    }
+
     // If sender is already on device blocklist, immediately elevate to maximum threat
     if (isSenderBlocked) {
       finalScore = 100;
       signals.explanations.unshift(`CRITICAL: Sender "${detectedSender}" is on your Local Blocklist. Immediate block enforced.`);
     }
 
-    const { verdict, confidence, label, recommendation } = VerdictEngine.determine(finalScore);
+    const { verdict, displayVerdict, confidence, label, recommendation, recommendedActions } = VerdictEngine.determine(finalScore);
+
+    // Identify detected tactics
+    const detectedTactics: DetectedTactic[] = [];
+    if (signals.urgency >= 35 || /\b(immediately|urgent|tonight|within\s+\d+|blocked|freeze|suspended)\b/i.test(text)) {
+      detectedTactics.push({
+        name: 'Urgency & Pressure',
+        description: 'Imposes an artificial deadline or immediate threat to bypass cautious thinking.',
+        severity: signals.urgency > 65 ? 'high' : 'medium'
+      });
+    }
+    if (signals.contradiction >= 35 || /\b(pay.*to.*(receive|claim|refund)|registration\s+fee|stamp\s+duty)\b/i.test(text)) {
+      detectedTactics.push({
+        name: 'Advance-Fee / Reverse Payment',
+        description: 'Requires an upfront payment or fee to release a supposed refund, prize, or order.',
+        severity: 'high'
+      });
+    }
+    if (signals.mismatch >= 35 || /\b(senior\s+bank\s+manager|electricity\s+officer|fraud\s+branch|sbi\s+yono|hdfc|kyc.*expir)\b/i.test(text)) {
+      detectedTactics.push({
+        name: 'Brand & Authority Impersonation',
+        description: 'Claims to represent an established financial institution or government authority without verified origin.',
+        severity: signals.mismatch > 60 ? 'high' : 'medium'
+      });
+    }
+    if (/\b(otp|pin|password|cvv|credentials|pan|aadhaar\s+biometric)\b/i.test(text) && (signals.urgency > 20 || signals.template > 20 || signals.mismatch > 20 || finalScore > 40)) {
+      detectedTactics.push({
+        name: 'Credential & OTP Solicitation',
+        description: 'Attempts to trick the user into revealing sensitive authentication codes or PINs.',
+        severity: 'high'
+      });
+    }
+    if (/\b(won|prize|lucky\s+draw|lottery|congratulations|kbc|cash\s+prize)\b/i.test(text)) {
+      detectedTactics.push({
+        name: 'Fake Reward / Lottery Lure',
+        description: 'Promises unrealistic monetary prizes or rewards to entice the victim into compliance.',
+        severity: 'high'
+      });
+    }
+    if (signals.urlRisk >= 35 || (urlAnalysis && urlAnalysis.riskScore >= 35)) {
+      detectedTactics.push({
+        name: 'Suspicious Web Redirection',
+        description: urlAnalysis?.findings[0]?.description || 'Directs user to an unverified domain, shortener, or non-standard protocol.',
+        severity: signals.urlRisk > 60 ? 'high' : 'medium'
+      });
+    }
+
+    // Formulate confidence-aware explanation of WHY MobiGuard flagged this
+    let whyFlagged = '';
+    if (finalScore >= 60) {
+      const topTacticNames = detectedTactics.map(t => t.name).slice(0, 2).join(' and ');
+      whyFlagged = topTacticNames
+        ? `Flagged due to elevated risk indicators including ${topTacticNames}. The content exhibits behavioral and technical patterns characteristic of social-engineering fraud.`
+        : 'Flagged with high risk because multiple threat markers including aggressive pressure, unauthenticated origin, or suspicious web destinations were detected.';
+    } else if (finalScore >= 30) {
+      whyFlagged = 'Flagged as suspicious due to unusual message phrasing, unverified links, or mild urgency. We advise verifying with the organization through official channels before acting.';
+    } else {
+      whyFlagged = 'Content exhibits standard legitimate formatting with no evidence of urgency pressure, credential solicitation, or deceptive redirection.';
+    }
+
+    const privacyNotice = 'Evaluated locally via on-device heuristics. Zero message content was sent to external servers.';
 
     const inferenceTimeMs = Math.round(performance.now() - startTime + localAi.telemetry.latencyMs);
+
+    // Collect suspicious phrases found in the content
+    const suspiciousPhrases: string[] = [];
+    const phraseRegexes = [
+      /\b(immediately|urgent|urgently|tonight(?:\s+at\s+[\d:]+\s*(?:pm|am)?)?|within\s+\d+\s*(?:hours?|mins?|days?)|permanently\s+blocked|suspended|will\s+be\s+(?:blocked|frozen|disconnected|deactivated)|expire[sd]?\s+today)\b/gi,
+      /\b(pay\s+(?:₹|inr|rs\.?)?\s*\d+|verification\s+fee|stamp\s+duty|registration\s+fee|processing\s+fee|re-delivery\s+fee|send\s+money|send\s+₹\s*\d+)\b/gi,
+      /\b(share\s+(?:the\s+)?(?:6-digit\s+)?otp|enter\s+(?:your\s+)?(?:upi\s+)?pin|cancellation\s+otp|share\s+password|verify\s+(?:your\s+)?pan|aadhaar\s+biometric|verify\s+credentials)\b/gi,
+      /\b(congratulations|lucky\s+draw|won\s+(?:the\s+)?(?:kbc|lottery|prize|₹|cash)|cash\s+prize|free\s+gift|bumper\s+prize)\b/gi,
+      /\b(senior\s+bank\s+manager|fraud\s+branch|electricity\s+officer|customs\s+department|income\s+tax\s+dept|sbi\s+yono)\b/gi
+    ];
+    phraseRegexes.forEach(re => {
+      const matches = text.match(re);
+      if (matches) {
+        matches.forEach(m => {
+          const trimmed = m.trim();
+          if (!suspiciousPhrases.includes(trimmed)) {
+            suspiciousPhrases.push(trimmed);
+          }
+        });
+      }
+    });
+
+    const structuredAnalysis: StructuredRiskAnalysis = {
+      threatLevel: isSenderBlocked ? 'HIGH RISK' : displayVerdict,
+      riskScore: finalScore,
+      summary: whyFlagged,
+      indicators: signals.explanations.slice(0, 5),
+      suspiciousPhrases,
+      recommendedActions: isSenderBlocked
+        ? [
+            'Sender is already in your quarantined blocklist.',
+            'Do not reply, dial, or click any link provided.',
+            'Delete the message to prevent accidental interaction.'
+          ]
+        : recommendedActions,
+      urlAnalysis,
+      confidence: isSenderBlocked ? 99 : Math.max(confidence, localAi.confidence)
+    };
 
     return {
       score: finalScore,
       verdict: isSenderBlocked ? 'FRAUD RISK' : verdict,
+      displayVerdict: isSenderBlocked ? 'HIGH RISK' : displayVerdict,
       confidence: isSenderBlocked ? 99 : Math.max(confidence, localAi.confidence),
       label: isSenderBlocked ? 'BLOCKED SENDER (CRITICAL THREAT)' : (localAi.threatIntent !== 'Authentic Communication' ? localAi.threatIntent : label),
       recommendation: isSenderBlocked
         ? `Sender "${detectedSender}" is blocked on this device. Do not respond, click links, or send funds.`
         : recommendation,
+      recommendedActions: isSenderBlocked
+        ? [
+            'Sender is already in your quarantined blocklist.',
+            'Do not reply, dial, or click any link provided.',
+            'Delete the message to prevent accidental interaction.'
+          ]
+        : recommendedActions,
+      whyFlagged,
+      detectedTactics,
       signals,
+      structuredAnalysis,
       upiDetails,
+      urlAnalysis,
       inferenceTimeMs,
       modelType: 'On-Device Local AI (Transformers.js + WASM)',
       sender: detectedSender,
       isSenderBlocked,
-      localAiInference: localAi
+      localAiInference: localAi,
+      privacyNotice
     };
   }
 }
 
-// Local Encrypted History Store (Simulating Room DB with Keystore security)
+// Local Encrypted History Store (Stores minimal non-private metadata only)
 const HISTORY_STORAGE_KEY = 'mobiguard_scan_history_v1';
 
 export const LocalHistoryStorage = {
@@ -603,17 +787,29 @@ export const LocalHistoryStorage = {
     rawText: string,
     result: AnalysisResult
   ): HistoryRecord {
+    // Sanitize preview to avoid retaining complete private messages
+    const sanitizedPreview = rawText.length > 50 
+      ? rawText.substring(0, 45).replace(/[\r\n]+/g, ' ') + '...' 
+      : rawText.replace(/[\r\n]+/g, ' ');
+
     const record: HistoryRecord = {
       id: 'scan_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       timestamp: Date.now(),
       type,
-      preview: rawText.length > 80 ? rawText.substring(0, 77) + '...' : rawText,
-      verdict: result.verdict,
-      score: result.score,
+      threatLevel: result.displayVerdict,
+      riskScore: result.score,
+      summary: result.whyFlagged || result.label || 'Analysis complete',
+      preview: sanitizedPreview,
       confidence: result.confidence,
+      // Backward compatibility fields
+      verdict: result.verdict,
+      displayVerdict: result.displayVerdict,
+      score: result.score,
       signals: result.signals,
       recommendation: result.recommendation,
-      rawText
+      recommendedActions: result.recommendedActions,
+      whyFlagged: result.whyFlagged
+      // Note: rawText is deliberately omitted to preserve user privacy
     };
 
     try {

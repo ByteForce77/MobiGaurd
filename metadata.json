@@ -1,6 +1,6 @@
 {
-  "name": "MobiGuard - On-Device AI Fraud Detection",
-  "description": "Complete 30-hour hackathon build kit and live on-device fraud detection simulator for MobiGuard.",
+  "name": "MobiGuard — Check before you trust",
+  "description": "Privacy-focused AI mobile security assistant that helps users identify scams, phishing, fraudulent messages, suspicious links, and social-engineering attempts.",
   "requestFramePermissions": ["camera", "microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
