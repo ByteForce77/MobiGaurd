@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">MobiGuard</string>
+    <string name="tagline">Local AI. Real Protection. Zero Data Shared.</string>
+    <string name="privacy_badge">🔒 Your data stays on this device.</string>
+</resources>
