@@ -25,6 +25,7 @@ import { CallGuard } from './components/CallGuard';
 import { ChatGuard } from './components/ChatGuard';
 import { AppGuard } from './components/AppGuard';
 import { ScamShieldKnowledge } from './components/ScamShieldKnowledge';
+import { MessageGuard } from './components/MessageGuard';
 import { EmergencyModeModal } from './components/EmergencyModeModal';
 import { SecurityCheckModal } from './components/SecurityCheckModal';
 import { SecurityScoreModal } from './components/SecurityScoreModal';
@@ -40,6 +41,7 @@ type ScreenType =
   | 'home' 
   | 'scan' 
   | 'check_message' 
+  | 'message_guard'
   | 'smart_url'
   | 'scan_qr' 
   | 'check_screenshot' 
@@ -319,10 +321,18 @@ export default function App() {
     setHistoryList(LocalHistoryStorage.getRecentScans());
     try {
       const params = new URLSearchParams(window.location.search);
-      const shared = params.get('text') || params.get('shared_text') || params.get('title');
+      const sharedUrl = params.get('url');
+      const shared = params.get('text') || sharedUrl || params.get('shared_text') || params.get('title');
       if (shared) {
         setMessageInput(shared);
-        setCurrentScreen('check_message');
+        if (sharedUrl || shared.startsWith('http://') || shared.startsWith('https://')) {
+          setUrlInput(shared);
+          setShowUrlField(true);
+          setCurrentScreen('smart_url');
+        } else {
+          setCurrentScreen('message_guard');
+        }
+        setActiveTab('scan');
       }
     } catch {
       // Ignore URL parsing errors
@@ -1124,6 +1134,130 @@ export default function App() {
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     <span className="text-xs font-bold text-emerald-400">Armed</span>
                   </div>
+                </div>
+              </div>
+
+              {/* ==================== AI SECURITY ASSISTANT GUARDS ==================== */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      Security Assistant Guards
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-800/40">
+                    On-Device AI
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Message Guard Card */}
+                  <button
+                    onClick={() => setCurrentScreen('message_guard')}
+                    className="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-cyan-500/50 text-left transition group cursor-pointer space-y-1.5 shadow-sm active:scale-[0.99]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="p-2 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 group-hover:bg-cyan-500 group-hover:text-slate-950 transition">
+                        <MessageSquare className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] font-bold text-cyan-400 bg-cyan-950/60 px-1.5 py-0.5 rounded">NEW</span>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-white group-hover:text-cyan-300 transition">
+                        Message Guard
+                      </h3>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        SMS & Notification scanner for fraud & phishing
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Link Guard Card */}
+                  <button
+                    onClick={() => setCurrentScreen('smart_url')}
+                    className="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-teal-500/50 text-left transition group cursor-pointer space-y-1.5 shadow-sm active:scale-[0.99]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20 group-hover:bg-teal-500 group-hover:text-slate-950 transition">
+                        <Link2 className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] font-mono text-teal-400">Sandbox</span>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-white group-hover:text-teal-300 transition">
+                        Link Guard
+                      </h3>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Inspect domains & phishing without opening
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Call Guard Card */}
+                  <button
+                    onClick={() => setCurrentScreen('call_guard')}
+                    className="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/50 text-left transition group cursor-pointer space-y-1.5 shadow-sm active:scale-[0.99]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition">
+                        <PhoneCall className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] font-mono text-amber-400">Scam Call</span>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-white group-hover:text-amber-300 transition">
+                        Call Guard
+                      </h3>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Caller screening & digital arrest threat defense
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Payment Guard Card */}
+                  <button
+                    onClick={() => setCurrentScreen('payment_guard')}
+                    className="p-3.5 rounded-2xl bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/50 text-left transition group cursor-pointer space-y-1.5 shadow-sm active:scale-[0.99]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 group-hover:bg-emerald-500 group-hover:text-slate-950 transition">
+                        <Zap className="w-4 h-4" />
+                      </div>
+                      <span className="text-[10px] font-mono text-emerald-400">UPI Guard</span>
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">
+                        Payment Guard
+                      </h3>
+                      <p className="text-[10px] text-slate-400 leading-snug">
+                        Collect traps, fake refunds & UPI PIN defense
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* ==================== EDUCATION MODE: SECURITY HYGIENE TIPS ==================== */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-slate-900 to-indigo-950/30 border border-indigo-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-indigo-400" />
+                    <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider">
+                      Education Mode: Security Tips
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono text-indigo-300 bg-indigo-950 px-2 py-0.5 rounded-md border border-indigo-800/40">
+                    Rule 101
+                  </span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-300 leading-relaxed">
+                  <p className="p-2 rounded-xl bg-slate-950/80 border border-indigo-950 text-[11px] text-slate-200">
+                    💡 <strong>UPI Safety:</strong> You <em>never</em> enter a UPI PIN to receive money or cashbacks. Entering your PIN always sends money OUT of your account.
+                  </p>
+                  <p className="p-2 rounded-xl bg-slate-950/80 border border-indigo-950 text-[11px] text-slate-200">
+                    💡 <strong>Digital Arrest Myth:</strong> No court, CBI, or police officer can legally place someone under "Digital Arrest" via WhatsApp video. Hang up immediately.
+                  </p>
                 </div>
               </div>
 
@@ -3865,46 +3999,91 @@ export default function App() {
                 </p>
               </div>
 
-              {/* Three Scan Modes Cards */}
-              <div className="space-y-2.5">
+              {/* Threat Scan Options Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button
-                  onClick={() => setCurrentScreen('check_message')}
-                  className="w-full p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3.5 group cursor-pointer"
+                  onClick={() => setCurrentScreen('message_guard')}
+                  className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3 group cursor-pointer"
                 >
-                  <div className="w-11 h-11 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 group-hover:scale-105 transition">
-                    <MessageSquare className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 group-hover:scale-105 transition">
+                    <MessageSquare className="w-4 h-4" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">Check Message or URL</h3>
-                    <p className="text-[11px] text-slate-400">Paste SMS, WhatsApp text, emails, or suspicious website links.</p>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-xs font-bold text-white group-hover:text-cyan-300 transition">Message Guard</h3>
+                      <span className="text-[9px] font-mono px-1 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/40">NEW</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400">Direct message & notification scanner.</p>
+                  </div>
+                  <span className="text-slate-500 group-hover:text-cyan-400 text-xs font-bold">→</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentScreen('smart_url')}
+                  className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-teal-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shrink-0 group-hover:scale-105 transition">
+                    <Link2 className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xs font-bold text-white group-hover:text-teal-300 transition">Link Guard</h3>
+                    <p className="text-[10px] text-slate-400">Deep domain & phishing URL sandbox.</p>
+                  </div>
+                  <span className="text-slate-500 group-hover:text-teal-400 text-xs font-bold">→</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentScreen('call_guard')}
+                  className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 group-hover:scale-105 transition">
+                    <PhoneCall className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xs font-bold text-white group-hover:text-amber-300 transition">Call Guard</h3>
+                    <p className="text-[10px] text-slate-400">Scam calls, digital arrest & extortion.</p>
+                  </div>
+                  <span className="text-slate-500 group-hover:text-amber-400 text-xs font-bold">→</span>
+                </button>
+
+                <button
+                  onClick={() => setCurrentScreen('payment_guard')}
+                  className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3 group cursor-pointer"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0 group-hover:scale-105 transition">
+                    <Zap className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-xs font-bold text-white group-hover:text-emerald-300 transition">Payment Guard</h3>
+                    <p className="text-[10px] text-slate-400">UPI IDs, collect traps & fake refunds.</p>
                   </div>
                   <span className="text-slate-500 group-hover:text-emerald-400 text-xs font-bold">→</span>
                 </button>
 
                 <button
                   onClick={() => setCurrentScreen('scan_qr')}
-                  className="w-full p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3.5 group cursor-pointer"
+                  className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3 group cursor-pointer"
                 >
-                  <div className="w-11 h-11 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 group-hover:scale-105 transition">
-                    <QrCode className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0 group-hover:scale-105 transition">
+                    <QrCode className="w-4 h-4" />
                   </div>
                   <div className="flex-1">
                     <h3 className="text-xs font-bold text-white group-hover:text-cyan-300 transition">Scan QR Code</h3>
-                    <p className="text-[11px] text-slate-400">Camera feed or image upload. Safely decodes UPI debits without opening.</p>
+                    <p className="text-[10px] text-slate-400">Camera or image decode without executing.</p>
                   </div>
                   <span className="text-slate-500 group-hover:text-cyan-400 text-xs font-bold">→</span>
                 </button>
 
                 <button
                   onClick={() => setCurrentScreen('check_screenshot')}
-                  className="w-full p-4 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3.5 group cursor-pointer"
+                  className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-850 text-left transition flex items-center gap-3 group cursor-pointer"
                 >
-                  <div className="w-11 h-11 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 group-hover:scale-105 transition">
-                    <ImageIcon className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 group-hover:scale-105 transition">
+                    <ImageIcon className="w-4 h-4" />
                   </div>
                   <div className="flex-1">
                     <h3 className="text-xs font-bold text-white group-hover:text-amber-300 transition">Check Screenshot</h3>
-                    <p className="text-[11px] text-slate-400">On-device OCR extracts text from payment apps and scam chats.</p>
+                    <p className="text-[10px] text-slate-400">On-device OCR for chats & payment apps.</p>
                   </div>
                   <span className="text-slate-500 group-hover:text-amber-400 text-xs font-bold">→</span>
                 </button>
@@ -3953,6 +4132,20 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ===================== SCREEN: MESSAGE GUARD ===================== */}
+          {currentScreen === 'message_guard' && (
+            <div className="p-4">
+              <MessageGuard 
+                onBack={() => setCurrentScreen('home')}
+                initialText={messageInput}
+                onBlockSender={(sender, reason) => handleBlockSender(sender, reason, messageInput)}
+                onReportScam={() => {
+                  window.open('https://cybercrime.gov.in', '_blank');
+                }}
+              />
             </div>
           )}
 

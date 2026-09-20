@@ -10,6 +10,15 @@
   "background_color": "#020617",
   "theme_color": "#020617",
   "categories": ["security", "finance", "utilities"],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
   "icons": [
     {
       "src": "pwa-192x192.png",

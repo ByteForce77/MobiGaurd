@@ -35,25 +35,31 @@ export const PaymentGuard: React.FC<PaymentGuardProps> = ({ onBack, onScanMessag
 
   const DEMO_PRESETS = [
     {
-      label: 'Fake Refund Collect Request',
+      label: 'Fake Refund Collect Request [DEMO]',
       input: 'upi://pay?pa=refund-desk88@ybl&pn=Swiggy%20Refund&am=1250&cu=INR&tn=Refund_Approval',
       type: 'UPI_LINK',
       threat: 'HIGH RISK'
     },
     {
-      label: 'Suspicious Cashback VPA',
+      label: 'Reverse UPI PIN Scam [DEMO]',
+      input: 'Scan QR code and enter your UPI PIN to receive ₹15,000 for your OLX sale. Money will be credited instantly upon PIN verification.',
+      type: 'PAYMENT_TEXT',
+      threat: 'HIGH RISK'
+    },
+    {
+      label: 'Bank SMS Debit Reversal Trap [DEMO]',
+      input: 'Dear SBI Customer, INR 28,450 debited from A/C 9081 to merchant CRYPTO-PAY. If NOT you, immediately cancel charge: upi://pay?pa=sbi-reverse-desk@okaxis&am=28450&tn=Cancel_Debit',
+      type: 'PAYMENT_TEXT',
+      threat: 'HIGH RISK'
+    },
+    {
+      label: 'Suspicious Cashback VPA [DEMO]',
       input: 'gpay.cashback-claim99@okaxis',
       type: 'UPI_ID',
       threat: 'HIGH RISK'
     },
     {
-      label: 'Advance Delivery Fee SMS',
-      input: 'Pay ₹49 courier delivery fee to release your delayed parcel: upi://pay?pa=courier99@paytm&am=49&tn=fee',
-      type: 'PAYMENT_TEXT',
-      threat: 'HIGH RISK'
-    },
-    {
-      label: 'Verified Merchant QR',
+      label: 'Verified Merchant QR [DEMO]',
       input: 'upi://pay?pa=starbucks.bbps@hdfcbank&pn=Starbucks%20India&am=350&cu=INR&tn=Order_4901',
       type: 'UPI_LINK',
       threat: 'SAFE'
@@ -230,6 +236,14 @@ export const PaymentGuard: React.FC<PaymentGuardProps> = ({ onBack, onScanMessag
         <p className="text-[11px] text-amber-300/90 leading-relaxed">
           <strong>You NEVER enter a UPI PIN to receive money or get a refund.</strong> A UPI PIN is strictly used to AUTHORIZE MONEY LEAVING YOUR ACCOUNT.
         </p>
+      </div>
+
+      {/* Zero Credential Storage Privacy Notice */}
+      <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] text-slate-400 flex items-center gap-2.5">
+        <Lock className="w-4 h-4 text-emerald-400 shrink-0" />
+        <span>
+          <strong className="text-slate-200">Zero Credential Access:</strong> MobiGuard analyzes text patterns on-device. It <em>never</em> requests, reads, or stores UPI PINs, passwords, OTPs, or bank credentials.
+        </span>
       </div>
 
       {/* Input Box */}

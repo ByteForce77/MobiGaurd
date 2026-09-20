@@ -153,16 +153,26 @@ export const CallGuard: React.FC<CallGuardProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Required Prototype Banner */}
-      <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-400 flex items-start gap-2.5">
-        <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-        <div className="space-y-0.5 text-[11px] leading-relaxed">
-          <span className="font-bold text-slate-200 block">
-            Android Native Feature — Prototype Simulation
+      {/* Required Prototype & AI Disclaimer Banner */}
+      <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-amber-500/30 text-xs text-slate-300 space-y-2">
+        <div className="flex items-start gap-2.5">
+          <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1 text-[11px] leading-relaxed">
+            <span className="font-bold text-amber-300 block">
+              AI Risk Analysis — Not a Verified Identity Database
+            </span>
+            <p className="text-slate-400">
+              MobiGuard analyzes behavioral patterns, urgency cues, and social-engineering tactics. It does <em>not</em> claim to identify a caller with absolute certainty.
+            </p>
+          </div>
+        </div>
+
+        {/* Golden Rule Warning Card */}
+        <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-700/50 text-[11px] text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+          <span>
+            <strong>Golden Rule:</strong> NEVER share OTPs, banking passwords, or UPI PINs over the phone. Real bank or government officials will <em>never</em> ask for your PIN, OTP, or remote screen-sharing access.
           </span>
-          <p>
-            Web applications cannot intercept real-time cellular phone calls or access dialer telemetry. In the native Android MobiGuard app, this runs as an on-device call screening assistant (`InCallService`).
-          </p>
         </div>
       </div>
 
