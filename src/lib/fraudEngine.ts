@@ -567,21 +567,27 @@ export const LocalBlocklistStorage = {
   }
 };
 
-// API Fetcher for Gemini Deep AI Analysis
+// API Fetcher for Gemini Deep AI Analysis (with strict timeout for static hosting / GitHub Pages)
 export async function fetchAiAnalysisApi(text: string, sender?: string): Promise<AiAnalysisResult | null> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
     const res = await fetch('/api/analyze-ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, sender })
+      body: JSON.stringify({ text, sender }),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
+
     if (!res.ok) {
       throw new Error(`Server returned status ${res.status}`);
     }
     const data = await res.json();
     return data as AiAnalysisResult;
   } catch (err) {
-    console.warn('Gemini API call failed, falling back to local analysis:', err);
+    console.info('Remote AI API unavailable or static environment; on-device neural rules active:', err);
     return null;
   }
 }

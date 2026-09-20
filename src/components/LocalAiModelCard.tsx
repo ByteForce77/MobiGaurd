@@ -19,12 +19,12 @@ export const LocalAiModelCard: React.FC<LocalAiModelCardProps> = ({ localAi }) =
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-white">Local On-Device AI Engine</span>
-              <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded">
-                WASM / INT8
+              <span className="text-xs font-bold text-white">Browser Demo Mode — Local AI unavailable</span>
+              <span className="px-1.5 py-0.5 text-[9px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded">
+                HEURISTIC ENGINE
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">Zero-latency neural evaluation on phone hardware</p>
+            <p className="text-[11px] text-slate-400">On-device pattern matching & heuristic threat matrix</p>
           </div>
         </div>
 

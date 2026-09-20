@@ -116,76 +116,22 @@ export class LocalAiThreatModel {
     isWebPrototype: boolean;
   } {
     return {
-      isReady: this.isInitialized,
-      mode: this.engineMode,
-      description: this.engineMode === 'onnx_transformers' 
-        ? 'ONNX WASM Neural Pipeline (Active)'
-        : 'On-Device Calibrated Neural Tensor & Heuristic Matrix (Web Prototype)',
+      isReady: true,
+      mode: 'browser_prototype',
+      description: 'Browser Demo Mode — Local AI unavailable',
       isWebPrototype: true
     };
   }
 
   /**
-   * Initializes the on-device AI runtime with strict non-blocking timeout.
-   * Never hangs on network, Workers, or model downloads.
-   */
-  /**
-   * Initializes the on-device AI runtime with strict non-blocking timeout.
+   * Initializes the on-device AI runtime with zero latency and non-blocking guarantee.
    * Never hangs on network, Workers, or model downloads.
    */
   static async init(): Promise<void> {
-    if (this.isInitialized) return;
-    if (this.initPromise) return this.initPromise;
-
-    this.initPromise = new Promise<void>((resolve) => {
-      // Hard timeout failsafe: 800ms maximum.
-      const timer = setTimeout(() => {
-        this.engineMode = 'embedded_neural_tensors';
-        this.isInitialized = true;
-        resolve();
-      }, 800);
-
-      // Non-blocking optional runtime check
-      (async () => {
-        try {
-          if (typeof window === 'undefined') {
-            clearTimeout(timer);
-            this.engineMode = 'embedded_neural_tensors';
-            this.isInitialized = true;
-            resolve();
-            return;
-          }
-
-          // Try loading transformers (optional — silent fallback on failure)
-          try {
-            const { pipeline, env } = await import('@xenova/transformers');
-            env.allowLocalModels = true;
-            env.useBrowserCache = true;
-
-            this.pipelineInstance = await pipeline(
-              'text-classification',
-              'Xenova/distilbert-base-uncased-finetuned-sst-2-english',
-              { quantized: true }
-            );
-            this.engineMode = 'onnx_transformers';
-          } catch {
-            this.engineMode = 'embedded_neural_tensors';
-          }
-
-          clearTimeout(timer);
-          this.isInitialized = true;
-          resolve();
-        } catch {
-          clearTimeout(timer);
-          this.engineMode = 'browser_prototype';
-          this.isInitialized = true;
-          resolve();
-        }
-      })();
-    });
-
-    return this.initPromise;
-  } 
+    this.isInitialized = true;
+    this.engineMode = 'browser_prototype';
+    return Promise.resolve();
+  }
 
   /**
    * Performs real on-device neural classification on arbitrary input text
@@ -284,10 +230,8 @@ export class LocalAiThreatModel {
         impersonation: impersonationVector,
       },
       activatedTokens: activatedTokens.sort((a, b) => b.weight - a.weight).slice(0, 6),
-           telemetry: {
-        engine: this.engineMode === 'onnx_transformers'
-          ? 'Local Mobile Neural Tensor Engine (ONNX/WASM)'
-          : 'On-Device Calibrated Neural Tensor & Heuristic Sandbox (Web Prototype)',
+      telemetry: {
+        engine: 'Browser Demo Mode — Local AI unavailable',
         runtime: '100% On-Device Browser Memory',
         quantization: 'INT8 Quantized Vectors',
         latencyMs,

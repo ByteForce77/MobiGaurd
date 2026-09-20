@@ -58,7 +58,7 @@ type ScreenType =
 type TabType = 'home' | 'scan' | 'history' | 'protection' | 'settings';
 
 export default function App() {
-  const [isInitializing, setIsInitializing] = useState<boolean>(true);
+  const [isInitializing, setIsInitializing] = useState<boolean>(false);
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('home');
   const [activeTab, setActiveTab] = useState<TabType>('home');
   const [scanSubMode, setScanSubMode] = useState<'message' | 'qr' | 'screenshot'>('message');
@@ -86,9 +86,6 @@ export default function App() {
 
     updateDeviceClock();
     const interval = setInterval(updateDeviceClock, 1000);
-    
-    // Initialize Local On-Device AI Model Engine
-    LocalAiThreatModel.init().catch(err => console.info('Local AI engine initialized with neural fallback', err));
 
     return () => clearInterval(interval);
   }, []);
@@ -849,13 +846,10 @@ export default function App() {
           </div>
           <div className="flex items-center gap-1.5">
             <span 
-              className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-500/30"
-              title="Web Prototype: On-device heuristics active; native Android hooks simulated"
+              className="text-[9px] font-mono font-bold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded border border-amber-500/30"
+              title="Browser Demo Mode: On-device threat heuristics active without remote dependencies"
             >
-              Web Prototype
-            </span>
-            <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-              {aiMode === 'local' ? 'On-Device AI' : 'Hybrid Gemini'}
+              Browser Demo Mode — Local AI unavailable
             </span>
           </div>
         </div>

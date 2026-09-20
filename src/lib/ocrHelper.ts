@@ -1,4 +1,4 @@
-import Tesseract from 'tesseract.js';
+// Lazy import Tesseract.js only when image OCR is explicitly triggered by user
 
 export interface SampleScreenshot {
   id: string;
@@ -126,14 +126,19 @@ export async function extractTextFromImage(
   if (navigator.onLine) {
     try {
       onProgress?.('Scanning with AI Vision...', 30);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const res = await fetch('/api/ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imageBase64: processedDataUrl,
           mimeType: file.type || 'image/jpeg'
-        })
+        }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       if (res.ok) {
         const data = await res.json();
@@ -152,14 +157,15 @@ export async function extractTextFromImage(
     }
   }
 
-  // Fallback: On-Device Tesseract.js OCR
+  // Fallback: On-Device Tesseract.js OCR (Lazily loaded only when requested)
   try {
     onProgress?.('Initializing on-device OCR engine...', 40);
+    const { default: Tesseract } = await import('tesseract.js');
     const workerResult = await Tesseract.recognize(
       processedDataUrl || file,
       'eng',
       {
-        logger: (m) => {
+        logger: (m: any) => {
           if (m.status === 'recognizing text') {
             const pct = Math.round(40 + (m.progress || 0) * 55);
             onProgress?.(`Reading text on-device (${Math.round((m.progress || 0) * 100)}%)...`, pct);

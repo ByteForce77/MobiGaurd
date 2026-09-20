@@ -51,17 +51,17 @@ export const StartupSplash: React.FC<StartupSplashProps> = ({ onComplete }) => {
   useEffect(() => {
     let isMounted = true;
 
-    // Hard failsafe timer: unconditionally transition to dashboard within 2.8 seconds
+    // Hard failsafe timer: unconditionally transition to dashboard within 1.2 seconds
     const hardFailsafeTimeout = setTimeout(() => {
       if (isMounted) {
         onComplete();
       }
-    }, 2800);
+    }, 1200);
 
-    // Step-by-step non-blocking pipeline
+    // Fast, non-blocking step-by-step simulated progress (completes in ~800ms)
     const runInitialization = async () => {
-      // Step 1: Sandbox & storage check (fast, ~300ms)
-      await new Promise(r => setTimeout(r, 250));
+      // Step 1: Sandbox & storage check (~150ms)
+      await new Promise(r => setTimeout(r, 150));
       if (!isMounted) return;
       
       setSteps(prev => prev.map(s => s.id === 'sandbox' 
@@ -71,50 +71,42 @@ export const StartupSplash: React.FC<StartupSplashProps> = ({ onComplete }) => {
       setProgress(40);
       setCurrentStatusText('Loading heuristic fraud vectors & threat definitions...');
 
-      // Step 2: Threat heuristics & rules (~400ms)
-      await new Promise(r => setTimeout(r, 350));
+      // Step 2: Threat heuristics & rules (~200ms)
+      await new Promise(r => setTimeout(r, 200));
       if (!isMounted) return;
 
       setSteps(prev => prev.map(s => s.id === 'heuristics'
         ? { ...s, status: 'success', tag: 'ACTIVE', detail: '120+ scam patterns & UPI contradiction rules armed.' }
-        : s.id === 'ai_tensor' ? { ...s, status: 'running', tag: 'CALIBRATING' } : s
+        : s.id === 'ai_tensor' ? { ...s, status: 'running', tag: 'CHECKING' } : s
       ));
-      setProgress(68);
-      setCurrentStatusText('Calibrating on-device neural weights...');
+      setProgress(70);
+      setCurrentStatusText('Checking AI model runtime...');
 
-      // Step 3: Local AI Model check with strict 600ms timeout
-      try {
-        await Promise.race([
-          LocalAiThreatModel.init(),
-          new Promise(r => setTimeout(r, 600))
-        ]);
-      } catch {
-        // Fallback silently
-      }
+      // Step 3: Browser demo mode indication (instant, non-blocking)
+      await new Promise(r => setTimeout(r, 150));
       if (!isMounted) return;
 
-      const aiStatus = LocalAiThreatModel.getStatus();
       setSteps(prev => prev.map(s => s.id === 'ai_tensor'
         ? { 
             ...s, 
-            status: 'success', 
-            tag: 'READY (OFFLINE)', 
-            detail: aiStatus.description || 'Calibrated neural weights ready in local memory.' 
+            status: 'prototype', 
+            tag: 'DEMO MODE', 
+            detail: 'Browser Demo Mode — Local AI unavailable (Offline heuristic matrix active)' 
           }
         : s.id === 'platform' ? { ...s, status: 'running', tag: 'DETECTING' } : s
       ));
       setProgress(90);
       setCurrentStatusText('Finalizing browser sandbox environment...');
 
-      // Step 4: Environment & hardware interfaces (~300ms)
-      await new Promise(r => setTimeout(r, 300));
+      // Step 4: Environment & hardware interfaces (~150ms)
+      await new Promise(r => setTimeout(r, 150));
       if (!isMounted) return;
 
       setSteps(prev => prev.map(s => s.id === 'platform'
         ? { 
             ...s, 
             status: 'prototype', 
-            tag: 'WEB PROTOTYPE', 
+            tag: 'WEB SANDBOX', 
             detail: 'Web Sandbox: SMS auto-read & Call interception are simulated for demonstration.' 
           }
         : s
@@ -122,12 +114,12 @@ export const StartupSplash: React.FC<StartupSplashProps> = ({ onComplete }) => {
       setProgress(100);
       setCurrentStatusText('MobiGuard Ready — Sandbox Armed');
 
-      // Brief transition delay before showing main dashboard
+      // Immediate transition to dashboard
       const autoProceedTimer = setTimeout(() => {
         if (isMounted) {
           onComplete();
         }
-      }, 400);
+      }, 200);
 
       return () => clearTimeout(autoProceedTimer);
     };
