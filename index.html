@@ -7,9 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <link rel="manifest" href="/MobiGuard/manifest.json" />
-    <link rel="icon" type="image/svg+xml" href="/MobiGuard/icon.svg" />
-    <link rel="apple-touch-icon" href="/MobiGuard/apple-touch-icon.png" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <title>MobiGuard — Check before you trust</title>
     <meta name="description" content="Privacy-focused AI mobile security assistant that helps users identify scams, phishing, fraudulent messages, suspicious links, and social-engineering attempts." />
     <meta property="og:title" content="MobiGuard — Check before you trust" />
@@ -57,31 +57,67 @@
           MobiGuard
         </div>
         <div id="loader-status" style="font-size: 11px; color: #64748b; font-family: monospace;">
-          Loading security dashboard...
+          Loading security sandbox...
         </div>
       </div>
     </div>
     <script>
-      // Failsafe 1: Update status to Browser Demo Mode if loading takes > 800ms
-      setTimeout(function() {
+      // Global MobiGuard Launch Controller
+      window.__launchMobiGuard = function() {
+        var spinner = document.querySelector('.mobiguard-spinner');
+        if (spinner) spinner.style.display = 'none';
         var status = document.getElementById('loader-status');
         if (status) {
+          status.innerHTML = '<span style="color: #06b6d4; font-weight: 600;">Opening Dashboard...</span>';
+        }
+        if (typeof window.__mountMobiGuard === 'function') {
+          window.__mountMobiGuard();
+        } else {
+          // If script still downloading, schedule immediate mount on load
+          window.__MOBIGUARD_AUTO_MOUNT = true;
+        }
+      };
+
+      // Transition to Browser Demo Mode status if local AI engine is inactive
+      setTimeout(function() {
+        var status = document.getElementById('loader-status');
+        if (status && !window.__MOBIGUARD_MOUNTED__) {
           status.innerHTML = '<span style="color: #f59e0b; font-weight: 600;">Browser Demo Mode — Local AI unavailable</span>';
         }
-      }, 800);
+      }, 500);
 
-      // Failsafe 2: Provide manual launch if browser script execution is delayed
+      // Provide responsive Launch Dashboard button
       setTimeout(function() {
         var preloader = document.querySelector('.mobiguard-preloader');
-        if (preloader && !document.getElementById('manual-launch-btn')) {
+        if (preloader && !window.__MOBIGUARD_MOUNTED__ && !document.getElementById('manual-launch-btn')) {
           var btn = document.createElement('button');
           btn.id = 'manual-launch-btn';
           btn.innerText = 'Launch MobiGuard Dashboard';
-          btn.style.cssText = 'margin-top: 16px; padding: 8px 16px; font-size: 12px; font-weight: 600; color: #020617; background: #06b6d4; border: none; border-radius: 8px; cursor: pointer;';
-          btn.onclick = function() { window.location.reload(); };
+          btn.style.cssText = 'margin-top: 16px; padding: 10px 20px; font-size: 13px; font-weight: 600; color: #020617; background: #06b6d4; border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);';
+          btn.onclick = window.__launchMobiGuard;
           preloader.appendChild(btn);
         }
-      }, 2500);
+      }, 800);
+
+      // Startup Error Boundary: Replace infinite spinner with clear error + retry button
+      window.addEventListener('error', function(err) {
+        if (window.__MOBIGUARD_MOUNTED__) return;
+        var spinner = document.querySelector('.mobiguard-spinner');
+        if (spinner) spinner.style.display = 'none';
+        var status = document.getElementById('loader-status');
+        if (status) {
+          status.innerHTML = '<span style="color: #ef4444; font-weight: 600;">Browser Sandbox Notice</span><br><span style="font-size: 10px; color: #94a3b8;">Fallback mode armed for demo</span>';
+        }
+        var preloader = document.querySelector('.mobiguard-preloader');
+        if (preloader && !document.getElementById('retry-btn')) {
+          var retryBtn = document.createElement('button');
+          retryBtn.id = 'retry-btn';
+          retryBtn.innerText = 'Retry';
+          retryBtn.style.cssText = 'margin-top: 10px; padding: 6px 16px; font-size: 12px; font-weight: 600; color: #f8fafc; background: #1e293b; border: 1px solid #475569; border-radius: 8px; cursor: pointer;';
+          retryBtn.onclick = function() { window.location.reload(); };
+          preloader.appendChild(retryBtn);
+        }
+      });
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
