@@ -43,22 +43,21 @@ class MainActivity : ComponentActivity() {
     private lateinit var fraudAnalyzer: FraudAnalyzer
     private lateinit var database: AppDatabase
 
+    private var incomingSharedTextState = mutableStateOf("")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fraudAnalyzer = FraudAnalyzer(this)
         database = AppDatabase.getDatabase(this)
 
-        // Read incoming shared text if launched via Android Share -> MobiGuard
-        val sharedText = if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
-        } else {
-            ""
-        }
+        // Read incoming shared text from WhatsApp, SMS, or system text selection
+        val initialText = extractSharedText(intent)
+        incomingSharedTextState.value = initialText
 
         setContent {
             MobiGuardTheme {
                 MobiGuardApp(
-                    initialSharedText = sharedText,
+                    initialSharedText = incomingSharedTextState.value,
                     onAnalyzeText = { text, type -> analyzeAndSave(text, type) },
                     onDeleteAllHistory = { clearHistory() },
                     getHistoryFlow = { database.scanDao().getAllScans() },
@@ -67,6 +66,35 @@ class MainActivity : ComponentActivity() {
                     onPasteClipboard = { pasteFromClipboard() }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val text = extractSharedText(intent)
+        if (text.isNotBlank()) {
+            incomingSharedTextState.value = text
+        }
+    }
+
+    private fun extractSharedText(intent: Intent?): String {
+        if (intent == null) return ""
+        return when (intent.action) {
+            Intent.ACTION_SEND -> {
+                if (intent.type == "text/plain") {
+                    intent.getStringExtra(Intent.EXTRA_TEXT) ?: ""
+                } else ""
+            }
+            Intent.ACTION_PROCESS_TEXT -> {
+                intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString() ?: ""
+            }
+            Intent.ACTION_VIEW -> {
+                intent.data?.getQueryParameter("text") 
+                    ?: intent.data?.getQueryParameter("url") 
+                    ?: ""
+            }
+            else -> intent.getStringExtra("EXTRA_SCAN_TEXT") ?: ""
         }
     }
 

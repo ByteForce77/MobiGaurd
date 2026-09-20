@@ -165,6 +165,8 @@ export default function App() {
   const [showClearBlocklistDialog, setShowClearBlocklistDialog] = useState<boolean>(false);
   const [scanSubTab, setScanSubTab] = useState<'message' | 'qr' | 'screenshot'>('message');
   const [exampleIndex, setExampleIndex] = useState<number>(0);
+  const [sharedIncomingSource, setSharedIncomingSource] = useState<string>('');
+  const [showSharedToast, setShowSharedToast] = useState<string | null>(null);
 
   // Product Modals State
   const [showEmergencyModal, setShowEmergencyModal] = useState<boolean>(false);
@@ -316,17 +318,53 @@ export default function App() {
     setExampleIndex(prev => prev + 1);
   };
 
-  // Load history & handle Android Share intent simulation on mount
+  // Load history & handle direct inter-app sharing (Share Sheet, Web Share Target, WhatsApp/SMS)
   useEffect(() => {
     setHistoryList(LocalHistoryStorage.getRecentScans());
     try {
       const params = new URLSearchParams(window.location.search);
       const sharedUrl = params.get('url');
-      const shared = params.get('text') || sharedUrl || params.get('shared_text') || params.get('title');
-      if (shared) {
-        setMessageInput(shared);
-        if (sharedUrl || shared.startsWith('http://') || shared.startsWith('https://')) {
-          setUrlInput(shared);
+      const shared = params.get('text') 
+        || sharedUrl 
+        || params.get('shared_text') 
+        || params.get('sms_body') 
+        || params.get('body') 
+        || params.get('message') 
+        || params.get('msg') 
+        || params.get('content') 
+        || params.get('data') 
+        || params.get('q') 
+        || params.get('title');
+
+      const sourceParam = params.get('source') || params.get('from') || '';
+      let detectedSource = sourceParam;
+      if (!detectedSource && shared) {
+        if (params.has('sms_body')) {
+          detectedSource = 'Messages (SMS)';
+        } else if (shared.toLowerCase().includes('whatsapp') || window.location.search.includes('wa')) {
+          detectedSource = 'WhatsApp';
+        } else {
+          detectedSource = 'External Application';
+        }
+      }
+
+      if (shared && shared.trim()) {
+        const cleanText = shared.trim();
+        setMessageInput(cleanText);
+        setSharedIncomingSource(detectedSource || 'External App');
+        setShowSharedToast(`📥 Direct input received from ${detectedSource || 'external app'}!`);
+        setTimeout(() => setShowSharedToast(null), 4500);
+
+        // Remove parameters from URL bar without refreshing
+        try {
+          const cleanPath = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanPath);
+        } catch {
+          // Ignore history state errors
+        }
+
+        if (sharedUrl || cleanText.startsWith('http://') || cleanText.startsWith('https://')) {
+          setUrlInput(cleanText);
           setShowUrlField(true);
           setCurrentScreen('smart_url');
         } else {
@@ -338,6 +376,37 @@ export default function App() {
       // Ignore URL parsing errors
     }
   }, []);
+
+  // One-tap direct paste & scan from external apps (WhatsApp, SMS, Browser)
+  const handleDirectPasteAndScan = async () => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.readText) {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim()) {
+          const clean = text.trim();
+          setMessageInput(clean);
+          setSharedIncomingSource('System Clipboard (WhatsApp / SMS)');
+          setShowSharedToast('✓ Scanned text grabbed directly from clipboard!');
+          setTimeout(() => setShowSharedToast(null), 3500);
+
+          if (clean.startsWith('http://') || clean.startsWith('https://')) {
+            setUrlInput(clean);
+            setShowUrlField(true);
+            setCurrentScreen('smart_url');
+          } else {
+            setCurrentScreen('message_guard');
+          }
+          setActiveTab('scan');
+          return;
+        }
+      }
+      setShowSharedToast('Clipboard is empty or contains non-text content. Copy a message first.');
+      setTimeout(() => setShowSharedToast(null), 3000);
+    } catch {
+      setShowSharedToast('Clipboard access was blocked. Please paste manually.');
+      setTimeout(() => setShowSharedToast(null), 3000);
+    }
+  };
 
   // Haptic feedback function
   const triggerHaptic = (isFraud: boolean) => {
@@ -915,6 +984,22 @@ export default function App() {
         {/* Content Body Area */}
         <div className="flex-1 overflow-y-auto pb-20">
           
+          {/* Incoming External App Notification Toast */}
+          {showSharedToast && (
+            <div className="mx-4 mt-3 p-3 rounded-2xl bg-cyan-950/95 border border-cyan-500 text-cyan-200 text-xs font-semibold shadow-2xl flex items-center justify-between animate-fadeIn">
+              <div className="flex items-center gap-2.5">
+                <Share2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>{showSharedToast}</span>
+              </div>
+              <button 
+                onClick={() => setShowSharedToast(null)} 
+                className="text-cyan-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-900/60 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          
           {/* ===================== SCREEN: HOME ===================== */}
           {currentScreen === 'home' && (
             <div className="p-4 space-y-4">
@@ -1305,17 +1390,25 @@ export default function App() {
 
                   {/* Input Action Utilities */}
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <button
                         onClick={handlePasteClipboard}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium flex items-center gap-1.5 transition active:scale-95"
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
                       >
                         <Copy className="w-3.5 h-3.5" />
                         <span>Paste Clipboard</span>
                       </button>
                       <button
+                        onClick={handleDirectPasteAndScan}
+                        className="px-2.5 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700/50 text-cyan-300 text-[11px] font-semibold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                        title="Scan text copied directly from WhatsApp or SMS"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>From WhatsApp/SMS</span>
+                      </button>
+                      <button
                         onClick={toggleVoiceInput}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5 transition active:scale-95 ${
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-center gap-1.5 transition active:scale-95 cursor-pointer ${
                           isVoiceListening
                             ? 'bg-rose-500 text-white animate-pulse'
                             : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
@@ -1328,7 +1421,7 @@ export default function App() {
 
                     <button
                       onClick={() => setShowUrlField(!showUrlField)}
-                      className="text-[11px] font-medium text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                      className="text-[11px] font-medium text-cyan-400 hover:text-cyan-300 flex items-center gap-1 shrink-0 cursor-pointer"
                     >
                       <Link2 className="w-3.5 h-3.5" />
                       <span>{showUrlField ? 'Hide URL' : '+ Suspicious URL'}</span>
@@ -4141,6 +4234,7 @@ export default function App() {
               <MessageGuard 
                 onBack={() => setCurrentScreen('home')}
                 initialText={messageInput}
+                initialSource={sharedIncomingSource}
                 onBlockSender={(sender, reason) => handleBlockSender(sender, reason, messageInput)}
                 onReportScam={() => {
                   window.open('https://cybercrime.gov.in', '_blank');
