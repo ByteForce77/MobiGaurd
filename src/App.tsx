@@ -8,11 +8,16 @@ import {
   Search, Sliders, Settings, Home, BookOpen, Flag, Bell, Play, Award, HelpCircle, PhoneCall, Zap
 } from 'lucide-react';
 import { 
-  FraudAnalyzer, AnalysisResult, LocalHistoryStorage, HistoryRecord, 
+  FraudAnalyzer, AnalysisResult, ThreatLevel, LocalHistoryStorage, HistoryRecord, 
   parseUpiUri, UpiDetails, LocalBlocklistStorage, BlockedSenderRecord,
   extractSenderFromText, fetchAiAnalysisApi, AiAnalysisResult
 } from './lib/fraudEngine';
-import { decodeQrFromCanvas, decodeQrFromImageElement } from './lib/qrDecoder';
+import { 
+  decodeQrFromVideo, 
+  decodeQrFromImageElement, 
+  analyzeQrPayload, 
+  QrSafetyResult 
+} from './lib/qrDecoder';
 import { SAMPLE_SCREENSHOTS, SampleScreenshot, extractTextFromImage, OcrResult } from './lib/ocrHelper';
 import { LocalAiThreatModel } from './lib/localAiModel';
 import { LocalAiModelCard } from './components/LocalAiModelCard';
@@ -134,12 +139,18 @@ export default function App() {
   const [hasTorch, setHasTorch] = useState<boolean>(false);
   const [isTorchOn, setIsTorchOn] = useState<boolean>(false);
   const [scannedQrString, setScannedQrString] = useState<string>('');
+  const [qrSafetyResult, setQrSafetyResult] = useState<QrSafetyResult | null>(null);
+  const [isCameraStarting, setIsCameraStarting] = useState<boolean>(false);
+  const [cameraPermissionState, setCameraPermissionState] = useState<'prompt' | 'granted' | 'denied' | 'unavailable' | 'error'>('prompt');
   const [qrManualText, setQrManualText] = useState<string>('');
   const [qrDecodeError, setQrDecodeError] = useState<string | null>(null);
   const [extractedUpi, setExtractedUpi] = useState<UpiDetails | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
+  const activeStreamRef = useRef<MediaStream | null>(null);
+  const isScanningRef = useRef<boolean>(false);
+  const lastScanTimeRef = useRef<number>(0);
 
   // Screenshot OCR State (Real on-device + AI Vision)
   const [selectedScreenshot, setSelectedScreenshot] = useState<SampleScreenshot | null>(null);
@@ -607,71 +618,145 @@ export default function App() {
 
   // Camera QR scanner loop
   useEffect(() => {
-    if (currentScreen === 'scan_qr' && qrInputMethod === 'camera') {
+    if (currentScreen === 'scan_qr' && qrInputMethod === 'camera' && !scannedQrString) {
       startCamera();
     } else {
       stopCamera();
     }
-    return () => stopCamera();
-  }, [currentScreen, qrInputMethod, cameraFacingMode]);
+    return () => {
+      stopCamera();
+    };
+  }, [currentScreen, qrInputMethod, cameraFacingMode, !!scannedQrString]);
 
   const startCamera = async () => {
     setCameraError(null);
+    setIsCameraStarting(true);
     setIsTorchOn(false);
     setHasTorch(false);
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setCameraError('Camera API not accessible in this environment. You can upload an image or paste a QR link.');
-        return;
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: cameraFacingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
+
+    // Stop any existing stream tracks first
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play();
-        setCameraActive(true);
-
-        // Check for device torch support
-        const track = stream.getVideoTracks()[0];
-        if (track && track.getCapabilities) {
-          const capabilities: any = track.getCapabilities();
-          if (capabilities && 'torch' in capabilities) {
-            setHasTorch(true);
-          }
-        }
-
-        requestScanFrame();
-      }
-    } catch (err: any) {
-      setCameraError('Camera permission denied or camera in use. Please allow camera permissions, or use image upload / direct link paste.');
-      setCameraActive(false);
+      activeStreamRef.current = null;
     }
-  };
-
-  const stopCamera = () => {
     if (animFrameIdRef.current) {
       cancelAnimationFrame(animFrameIdRef.current);
       animFrameIdRef.current = null;
     }
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
+
+    try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError('Camera API is not supported in this browser or environment. You can upload a QR image from your gallery or paste a link.');
+        setCameraPermissionState('unavailable');
+        setIsCameraStarting(false);
+        setCameraActive(false);
+        return;
+      }
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            facingMode: { ideal: cameraFacingMode },
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 }
+          }
+        });
+      } catch (idealErr: any) {
+        // Fallback with basic constraint if facingMode/ideal resolution fails
+        console.warn('Ideal video constraints rejected, falling back to basic video', idealErr);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: true
+        });
+      }
+
+      activeStreamRef.current = stream;
+      setCameraPermissionState('granted');
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn('Video play() interrupted:', playErr);
+        }
+
+        setCameraActive(true);
+        setIsCameraStarting(false);
+
+        // Check for device torch support
+        const track = stream.getVideoTracks()[0];
+        if (track && track.getCapabilities) {
+          try {
+            const capabilities: any = track.getCapabilities();
+            if (capabilities && 'torch' in capabilities) {
+              setHasTorch(true);
+            }
+          } catch {}
+        }
+
+        // Initiate continuous scanning loop
+        isScanningRef.current = true;
+        lastScanTimeRef.current = 0;
+        scheduleScanLoop();
+      } else {
+        setIsCameraStarting(false);
+      }
+    } catch (err: any) {
+      setIsCameraStarting(false);
+      setCameraActive(false);
+      const errName = err?.name || '';
+      if (errName === 'NotAllowedError' || errName === 'PermissionDeniedError') {
+        setCameraPermissionState('denied');
+        setCameraError('Camera permission was denied. Please allow camera permissions in your browser or Android settings to scan QR codes.');
+      } else if (errName === 'NotFoundError' || errName === 'DevicesNotFoundError') {
+        setCameraPermissionState('unavailable');
+        setCameraError('No camera found on this device. You can upload a QR image from your gallery or paste the link directly.');
+      } else if (errName === 'NotReadableError' || errName === 'TrackStartError') {
+        setCameraPermissionState('error');
+        setCameraError('The camera is currently in use by another app or system service. Please close other camera apps and retry.');
+      } else {
+        setCameraPermissionState('error');
+        setCameraError(`Camera could not be started (${err?.message || 'Permission or hardware issue'}). You can upload a photo instead.`);
+      }
+    }
+  };
+
+  const stopCamera = () => {
+    isScanningRef.current = false;
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch {}
+      });
+      activeStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      try {
+        videoRef.current.pause();
+      } catch {}
       videoRef.current.srcObject = null;
     }
     setIsTorchOn(false);
     setCameraActive(false);
+    setIsCameraStarting(false);
   };
 
   const toggleTorch = async () => {
-    if (!videoRef.current || !videoRef.current.srcObject) return;
-    const stream = videoRef.current.srcObject as MediaStream;
-    const track = stream.getVideoTracks()[0];
+    if (!activeStreamRef.current) return;
+    const track = activeStreamRef.current.getVideoTracks()[0];
     if (!track) return;
     try {
       const next = !isTorchOn;
@@ -691,32 +776,99 @@ export default function App() {
     triggerHaptic(false);
   };
 
-  const requestScanFrame = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const scheduleScanLoop = () => {
+    if (!isScanningRef.current) return;
+    animFrameIdRef.current = requestAnimationFrame(scanFrame);
+  };
 
-    if (video.readyState === video.HAVE_ENOUGH_DATA && ctx) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const code = await decodeQrFromCanvas(canvas, ctx);
-      if (code) {
-        handleQrScanned(code);
-        return;
+  const scanFrame = async () => {
+    if (!isScanningRef.current) return;
+    const video = videoRef.current;
+    if (!video) {
+      scheduleScanLoop();
+      return;
+    }
+
+    // readyState >= 2 is HAVE_CURRENT_DATA
+    if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+      const now = performance.now();
+      // Throttle scanning to 60-70ms interval (approx 15 checks/sec) for optimal battery and performance
+      if (now - lastScanTimeRef.current >= 65) {
+        lastScanTimeRef.current = now;
+        try {
+          const decoded = await decodeQrFromVideo(video);
+          if (decoded && isScanningRef.current) {
+            isScanningRef.current = false;
+            handleQrScanned(decoded);
+            return;
+          }
+        } catch (e) {
+          console.warn('Frame scan error:', e);
+        }
       }
     }
-    animFrameIdRef.current = requestAnimationFrame(() => requestScanFrame());
+
+    scheduleScanLoop();
   };
 
   const handleQrScanned = (qrCode: string) => {
-    setScannedQrString(qrCode);
+    if (!qrCode || !qrCode.trim()) return;
+    const cleanCode = qrCode.trim();
+    setScannedQrString(cleanCode);
     setQrDecodeError(null);
-    const upi = parseUpiUri(qrCode);
-    setExtractedUpi(upi.isUpi ? upi : null);
     triggerHaptic(false);
     stopCamera();
+
+    // Comprehensive security analysis on the QR payload
+    const safety = analyzeQrPayload(cleanCode);
+    setQrSafetyResult(safety);
+
+    const upi = parseUpiUri(cleanCode);
+    setExtractedUpi(upi.isUpi ? upi : null);
+
+    // Save to local scan history
+    try {
+      const verdict = safety.safetyVerdict === 'DANGEROUS' ? 'FRAUD RISK' : safety.safetyVerdict === 'SUSPICIOUS' ? 'SUSPICIOUS' : 'GENUINE';
+      const threatLevel: ThreatLevel = safety.safetyVerdict === 'DANGEROUS' ? 'HIGH RISK' : safety.safetyVerdict === 'SUSPICIOUS' ? 'SUSPICIOUS' : 'SAFE';
+      
+      LocalHistoryStorage.saveScan('QR', cleanCode, {
+        score: safety.riskScore,
+        verdict,
+        displayVerdict: threatLevel,
+        confidence: 95,
+        label: safety.title,
+        recommendation: safety.recommendations[0] || 'Inspect before proceeding',
+        recommendedActions: safety.recommendations,
+        whyFlagged: safety.reasons.join('; '),
+        detectedTactics: [],
+        signals: {
+          urgency: 0,
+          contradiction: safety.isUpi && safety.upiDetails?.isDebitTrap ? 100 : 0,
+          mismatch: safety.isUpi && safety.upiDetails?.isSuspiciousVpa ? 80 : 0,
+          template: 0,
+          urlRisk: safety.isUrl ? safety.riskScore : 0,
+          explanations: safety.reasons
+        },
+        inferenceTimeMs: 14,
+        modelType: 'DistilBERT-TFLite + RuleEngine',
+        privacyNotice: 'Scanned on-device with zero cloud telemetry.'
+      });
+      setHistoryList(LocalHistoryStorage.getRecentScans());
+    } catch (e) {
+      console.warn('Failed to save QR history', e);
+    }
+  };
+
+  const handleScanAgain = () => {
+    setScannedQrString('');
+    setQrSafetyResult(null);
+    setQrDecodeError(null);
+    setExtractedUpi(null);
+    setQrManualText('');
+    triggerHaptic(false);
+    if (qrInputMethod === 'camera') {
+      startCamera();
+    }
   };
 
   const handleQrImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2541,71 +2693,135 @@ export default function App() {
               </div>
 
               {/* Camera Scanner View */}
-              {qrInputMethod === 'camera' && (
+              {qrInputMethod === 'camera' && !scannedQrString && (
                 <div className="space-y-2">
-                  <div className="relative rounded-2xl overflow-hidden bg-black aspect-square border border-slate-800 flex items-center justify-center">
-                    <video ref={videoRef} className="w-full h-full object-cover" />
-                    <canvas ref={canvasRef} className="hidden" />
-
-                    {/* Scanning Reticle */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-52 h-52 border-2 border-dashed border-emerald-400/80 rounded-2xl relative">
-                        <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-emerald-400"></div>
-                        <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-emerald-400"></div>
-                        <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-emerald-400"></div>
-                        <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-emerald-400"></div>
-                        <div className="w-full h-0.5 bg-emerald-400/70 absolute top-1/2 -translate-y-1/2 animate-pulse"></div>
+                  {cameraPermissionState === 'denied' ? (
+                    <div className="p-6 rounded-2xl bg-slate-900 border border-amber-500/40 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto">
+                        <Camera className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">Camera Access Required</h3>
+                        <p className="text-xs text-slate-300 mt-1 max-w-xs mx-auto leading-relaxed">
+                          MobiGuard needs camera permission to continuously detect QR codes and protect you from payment scams.
+                        </p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2 justify-center pt-2">
+                        <button
+                          onClick={() => startCamera()}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow transition active:scale-95"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          <span>Grant Camera Permission</span>
+                        </button>
+                        <button
+                          onClick={() => setQrInputMethod('upload')}
+                          className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold hover:bg-slate-700 transition active:scale-95 flex items-center justify-center gap-2"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Upload Photo Instead</span>
+                        </button>
                       </div>
                     </div>
-
-                    {/* Camera On-Screen Controls */}
-                    <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
-                      {hasTorch && (
+                  ) : cameraPermissionState === 'unavailable' ? (
+                    <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 flex items-center justify-center mx-auto">
+                        <Camera className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">No Camera Detected</h3>
+                        <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                          No camera hardware was found. You can upload an image from your gallery or paste a link directly.
+                        </p>
+                      </div>
+                      <div className="flex gap-2 justify-center pt-2">
                         <button
-                          type="button"
-                          onClick={toggleTorch}
-                          className={`p-2 rounded-xl backdrop-blur border transition active:scale-95 ${
-                            isTorchOn
-                              ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-lg shadow-amber-400/30'
-                              : 'bg-slate-900/80 text-slate-200 border-slate-700'
-                          }`}
-                          title="Toggle Flashlight"
+                          onClick={() => setQrInputMethod('upload')}
+                          className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow"
                         >
-                          <Flashlight className="w-4 h-4" />
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Upload from Gallery</span>
                         </button>
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={toggleCameraFacing}
-                        className="p-2 rounded-xl bg-slate-900/80 text-slate-200 border border-slate-700 backdrop-blur transition active:scale-95"
-                        title="Flip Camera (Front/Rear)"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
+                        <button
+                          onClick={() => setQrInputMethod('paste')}
+                          className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 text-xs font-semibold border border-slate-700"
+                        >
+                          <Link2 className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Paste Link</span>
+                        </button>
+                      </div>
                     </div>
+                  ) : (
+                    <div className="relative rounded-2xl overflow-hidden bg-black aspect-square border border-slate-800 flex items-center justify-center">
+                      <video 
+                        ref={videoRef} 
+                        className="w-full h-full object-cover" 
+                        autoPlay 
+                        playsInline 
+                        muted 
+                      />
+                      <canvas ref={canvasRef} className="hidden" />
 
-                    {cameraError && (
-                      <div className="absolute inset-0 bg-slate-950/95 p-4 flex flex-col items-center justify-center text-center">
-                        <AlertTriangle className="w-8 h-8 text-amber-400 mb-2" />
-                        <p className="text-xs text-slate-300 mb-3">{cameraError}</p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => startCamera()}
-                            className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs"
-                          >
-                            Retry Camera
-                          </button>
-                          <button
-                            onClick={() => setQrInputMethod('upload')}
-                            className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-700"
-                          >
-                            Upload Photo
-                          </button>
+                      {/* Scanning Reticle */}
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="w-52 h-52 border-2 border-dashed border-emerald-400/80 rounded-2xl relative">
+                          <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-emerald-400"></div>
+                          <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-emerald-400"></div>
+                          <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-emerald-400"></div>
+                          <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-emerald-400"></div>
+                          <div className="w-full h-0.5 bg-emerald-400/70 absolute top-1/2 -translate-y-1/2 animate-pulse"></div>
                         </div>
                       </div>
-                    )}
-                  </div>
+
+                      {/* Camera On-Screen Controls */}
+                      <div className="absolute top-3 right-3 flex items-center gap-2 z-10">
+                        {hasTorch && (
+                          <button
+                            type="button"
+                            onClick={toggleTorch}
+                            className={`p-2 rounded-xl backdrop-blur border transition active:scale-95 ${
+                              isTorchOn
+                                ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-lg shadow-amber-400/30'
+                                : 'bg-slate-900/80 text-slate-200 border-slate-700'
+                            }`}
+                            title="Toggle Flashlight"
+                          >
+                            <Flashlight className="w-4 h-4" />
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={toggleCameraFacing}
+                          className="p-2 rounded-xl bg-slate-900/80 text-slate-200 border border-slate-700 backdrop-blur transition active:scale-95"
+                          title="Flip Camera (Front/Rear)"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      {cameraError && (
+                        <div className="absolute inset-0 bg-slate-950/95 p-4 flex flex-col items-center justify-center text-center z-20">
+                          <AlertTriangle className="w-8 h-8 text-amber-400 mb-2" />
+                          <p className="text-xs text-slate-300 mb-3">{cameraError}</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => startCamera()}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-xs"
+                            >
+                              Retry Camera
+                            </button>
+                            <button
+                              onClick={() => setQrInputMethod('upload')}
+                              className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 border border-slate-700"
+                            >
+                              Upload Photo
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between px-1 text-[11px] text-slate-400">
                     <span className="flex items-center gap-1.5">
@@ -2788,58 +3004,333 @@ export default function App() {
                 </div>
               )}
 
-              {/* Decoded QR Card (UPI Parameters Extraction) */}
+              {/* Decoded QR Card & Security Verdict */}
               {scannedQrString && (
-                <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      Extracted QR Payload
-                    </span>
-                    <button
-                      onClick={() => {
-                        setScannedQrString('');
-                        setExtractedUpi(null);
-                      }}
-                      className="text-xs text-slate-400 hover:text-white"
-                    >
-                      Clear
-                    </button>
+                <div className="space-y-4">
+                  {/* Top Scan Again / Clear Bar */}
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-900 border border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span className="text-xs font-bold text-white">QR Code Decoded</span>
+                      {qrSafetyResult?.payloadType && (
+                        <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-semibold">
+                          {qrSafetyResult.payloadType}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleScanAgain}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex items-center gap-1.5 transition active:scale-95"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Scan Again</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setScannedQrString('');
+                          setQrSafetyResult(null);
+                          setExtractedUpi(null);
+                        }}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 text-xs"
+                        title="Dismiss"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
 
-                  <p className="text-xs text-slate-300 font-mono bg-slate-950 p-2.5 rounded-xl border border-slate-800 break-all">
-                    {scannedQrString}
-                  </p>
+                  {/* Safety Result Badge Card (SAFE, SUSPICIOUS, DANGEROUS) */}
+                  {qrSafetyResult && (
+                    <div className={`p-4 rounded-2xl border transition-all ${
+                      qrSafetyResult.safetyVerdict === 'SAFE'
+                        ? 'bg-emerald-950/40 border-emerald-500/40'
+                        : qrSafetyResult.safetyVerdict === 'SUSPICIOUS'
+                        ? 'bg-amber-950/40 border-amber-500/40'
+                        : 'bg-rose-950/50 border-rose-500/50'
+                    }`}>
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-2 rounded-xl ${
+                            qrSafetyResult.safetyVerdict === 'SAFE'
+                              ? 'bg-emerald-500/20 text-emerald-400'
+                              : qrSafetyResult.safetyVerdict === 'SUSPICIOUS'
+                              ? 'bg-amber-500/20 text-amber-400'
+                              : 'bg-rose-500/20 text-rose-400'
+                          }`}>
+                            {qrSafetyResult.safetyVerdict === 'SAFE' && <ShieldCheck className="w-5 h-5" />}
+                            {qrSafetyResult.safetyVerdict === 'SUSPICIOUS' && <AlertTriangle className="w-5 h-5" />}
+                            {qrSafetyResult.safetyVerdict === 'DANGEROUS' && <ShieldAlert className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
+                              MobiGuard Safety Assessment
+                            </span>
+                            <h3 className="text-sm font-bold text-white">
+                              {qrSafetyResult.title}
+                            </h3>
+                          </div>
+                        </div>
 
-                  {/* UPI Metadata breakdown */}
-                  {extractedUpi && (
-                    <div className="space-y-1.5 text-xs bg-slate-950/80 p-3 rounded-xl border border-slate-800/80 font-mono">
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Payee ID (VPA):</span>
-                        <span className="text-slate-200 font-bold">{extractedUpi.pa || 'N/A'}</span>
+                        <span className={`px-2.5 py-1 rounded-full text-[11px] font-black tracking-wider uppercase font-mono shadow-sm ${
+                          qrSafetyResult.safetyVerdict === 'SAFE'
+                            ? 'bg-emerald-500 text-slate-950'
+                            : qrSafetyResult.safetyVerdict === 'SUSPICIOUS'
+                            ? 'bg-amber-400 text-slate-950'
+                            : 'bg-rose-500 text-white'
+                        }`}>
+                          {qrSafetyResult.safetyVerdict}
+                        </span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Payee Name:</span>
-                        <span className="text-slate-200 font-bold">{extractedUpi.pn || 'N/A'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Amount:</span>
-                        <span className="text-slate-200 font-bold">{extractedUpi.am ? `₹${extractedUpi.am}` : 'User specified'}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Transaction Note:</span>
-                        <span className="text-amber-400 font-bold">{extractedUpi.tn || 'None'}</span>
+
+                      <p className="text-xs text-slate-300 leading-relaxed mt-1">
+                        {qrSafetyResult.summary}
+                      </p>
+
+                      {/* Risk meter score */}
+                      <div className="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400 font-medium">Calculated Threat Score:</span>
+                        <div className="flex items-center gap-2">
+                          <div className="w-24 h-2 bg-slate-800 rounded-full overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                qrSafetyResult.safetyVerdict === 'SAFE'
+                                  ? 'bg-emerald-400'
+                                  : qrSafetyResult.safetyVerdict === 'SUSPICIOUS'
+                                  ? 'bg-amber-400'
+                                  : 'bg-rose-500'
+                              }`}
+                              style={{ width: `${Math.max(5, qrSafetyResult.riskScore)}%` }}
+                            />
+                          </div>
+                          <span className={`font-mono font-bold ${
+                            qrSafetyResult.safetyVerdict === 'SAFE'
+                              ? 'text-emerald-400'
+                              : qrSafetyResult.safetyVerdict === 'SUSPICIOUS'
+                              ? 'text-amber-400'
+                              : 'text-rose-400'
+                          }`}>
+                            {qrSafetyResult.riskScore}/100
+                          </span>
+                        </div>
                       </div>
                     </div>
                   )}
 
-                  <button
-                    onClick={() => executeAnalysis(scannedQrString, 'QR')}
-                    className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition active:scale-95"
-                  >
-                    <ShieldCheck className="w-4 h-4" />
-                    <span>Run On-Device Analysis</span>
-                  </button>
+                  {/* Decoded QR Raw Content Display */}
+                  <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <QrCode className="w-4 h-4 text-cyan-400" />
+                        Decoded Content
+                      </span>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(scannedQrString);
+                            setBlockToast('✓ Copied QR content');
+                            setTimeout(() => setBlockToast(null), 2000);
+                          } catch {}
+                        }}
+                        className="text-[11px] text-slate-300 hover:text-white flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 transition active:scale-95"
+                      >
+                        <Copy className="w-3 h-3 text-slate-400" />
+                        <span>Copy</span>
+                      </button>
+                    </div>
+
+                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/90 font-mono text-xs text-slate-200 break-all select-all max-h-32 overflow-y-auto">
+                      {scannedQrString}
+                    </div>
+                  </div>
+
+                  {/* URL Safety & Content Review (DO NOT AUTO-OPEN) */}
+                  {qrSafetyResult?.isUrl && qrSafetyResult.urlAnalysis && (
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <Lock className="w-4 h-4 text-emerald-400" />
+                          URL Safety Review
+                        </span>
+                        <span className="text-[10px] text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-800/40 font-semibold">
+                          Auto-Open Blocked
+                        </span>
+                      </div>
+
+                      <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 text-xs space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-slate-400 font-medium shrink-0">Destination Host:</span>
+                          <span className="text-white font-mono font-bold break-all text-right">
+                            {qrSafetyResult.urlAnalysis.domain || 'N/A'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-medium">Protocol:</span>
+                          <span className={`font-mono font-semibold ${
+                            qrSafetyResult.urlAnalysis.isHttps ? 'text-emerald-400' : 'text-rose-400'
+                          }`}>
+                            {qrSafetyResult.urlAnalysis.isHttps ? 'HTTPS (Encrypted)' : 'HTTP (Insecure Plaintext)'}
+                          </span>
+                        </div>
+
+                        {qrSafetyResult.urlAnalysis.isShortener && (
+                          <div className="flex items-center justify-between text-amber-400">
+                            <span className="font-medium">URL Shortener:</span>
+                            <span className="font-mono font-bold">Detected (Masks real destination)</span>
+                          </div>
+                        )}
+
+                        {(qrSafetyResult.payloadType === 'APP_INSTALL_LINK' || scannedQrString.toLowerCase().includes('.apk')) && (
+                          <div className="p-2 rounded-lg bg-rose-950/80 border border-rose-800 text-rose-300 font-bold text-[11px] flex items-center gap-1.5">
+                            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                            <span>Dangerous: Links directly to an executable Android APK file.</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        To protect your device against malware and zero-day browser exploits, MobiGuard will never launch external links automatically. Review the URL above carefully before taking any action.
+                      </p>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setUrlInput(scannedQrString);
+                            setCurrentScreen('smart_url');
+                          }}
+                          className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 flex items-center justify-center gap-1.5 transition active:scale-95"
+                        >
+                          <Shield className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>Inspect in URL Guard</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(scannedQrString);
+                              setBlockToast('✓ Copied URL');
+                              setTimeout(() => setBlockToast(null), 2000);
+                            } catch {}
+                          }}
+                          className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700"
+                          title="Copy URL to Clipboard"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* UPI Metadata & Fraud Check */}
+                  {qrSafetyResult?.isUpi && extractedUpi && (
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <Zap className="w-4 h-4 text-amber-400" />
+                          UPI Payment Parameters
+                        </span>
+                        {qrSafetyResult.upiDetails?.isDebitTrap && (
+                          <span className="text-[10px] text-rose-300 bg-rose-950 font-bold px-2 py-0.5 rounded-full border border-rose-800 animate-pulse">
+                            CRITICAL TRAP
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Explicit Debit Trap Warning */}
+                      {qrSafetyResult.upiDetails?.isDebitTrap && (
+                        <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/60 text-rose-200 text-xs space-y-1">
+                          <div className="flex items-center gap-1.5 font-black text-rose-300">
+                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>CRITICAL PAYMENT DEBIT TRAP DETECTED</span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed">
+                            The note says <strong>"{extractedUpi.tn || 'refund'}"</strong>, but scanning this initiates a <strong>DEBIT</strong> of <strong>₹{extractedUpi.am || 'X'}</strong> from your bank account!
+                          </p>
+                          <p className="text-[10px] text-rose-300/90 font-mono font-bold pt-1">
+                            REMINDER: Entering your UPI PIN always DEDUCTS money from your account. You NEVER need to enter a PIN to receive a payment or refund!
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5 text-xs bg-slate-950/90 p-3 rounded-xl border border-slate-800 font-mono">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Payee ID (VPA):</span>
+                          <span className="text-slate-200 font-bold break-all text-right">{extractedUpi.pa || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Payee Name:</span>
+                          <span className="text-slate-200 font-bold break-all text-right">{extractedUpi.pn || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Requested Amount:</span>
+                          <span className="text-emerald-400 font-bold">
+                            {extractedUpi.am ? `₹${extractedUpi.am}` : 'User-entered (Open)'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Transaction Note:</span>
+                          <span className={`font-bold ${qrSafetyResult.upiDetails?.isDebitTrap ? 'text-rose-400' : 'text-slate-300'}`}>
+                            {extractedUpi.tn || 'None'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Key Indicators / Reasons Flagged */}
+                  {qrSafetyResult?.reasons && qrSafetyResult.reasons.length > 0 && (
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                      <span className="text-xs font-bold text-white block">
+                        Security Indicators & Signals
+                      </span>
+                      <ul className="space-y-1.5">
+                        {qrSafetyResult.reasons.map((reason, idx) => (
+                          <li key={idx} className="text-xs text-slate-300 flex items-start gap-2">
+                            <span className="text-amber-400 font-bold shrink-0 mt-0.5">•</span>
+                            <span>{reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {qrSafetyResult?.recommendations && qrSafetyResult.recommendations.length > 0 && (
+                    <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+                      <span className="text-xs font-bold text-white block">
+                        Recommended Actions
+                      </span>
+                      <ul className="space-y-1.5">
+                        {qrSafetyResult.recommendations.map((rec, idx) => (
+                          <li key={idx} className="text-xs text-slate-300 flex items-start gap-2">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Primary Actions: Scan Again & Deep Analysis */}
+                  <div className="space-y-2 pt-1">
+                    <button
+                      onClick={handleScanAgain}
+                      className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition active:scale-95"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Scan Again</span>
+                    </button>
+
+                    <button
+                      onClick={() => executeAnalysis(scannedQrString, 'QR')}
+                      className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs border border-slate-700 flex items-center justify-center gap-2 transition active:scale-95"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                      <span>Run Deep AI Semantic Analysis</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
