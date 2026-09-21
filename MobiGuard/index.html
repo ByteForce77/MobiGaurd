@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en" style="background-color: #020617; color-scheme: dark;">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#020617" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <title>MobiGuard — Check before you trust</title>
+    <meta name="description" content="Privacy-focused AI mobile security assistant that helps users identify scams, phishing, fraudulent messages, suspicious links, and social-engineering attempts." />
+    <meta property="og:title" content="MobiGuard — Check before you trust" />
+    <meta property="og:description" content="Privacy-focused AI mobile security assistant that helps users identify scams, phishing, fraudulent messages, suspicious links, and social-engineering attempts." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      html, body {
+        background-color: #020617;
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        color: #f8fafc;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      }
+      #root { min-height: 100vh; }
+      .mobiguard-preloader {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background-color: #020617;
+        color: #94a3b8;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      .mobiguard-spinner {
+        width: 44px;
+        height: 44px;
+        border: 3px solid rgba(6, 182, 212, 0.2);
+        border-top-color: #06b6d4;
+        border-radius: 50%;
+        animation: mobiguard-spin 0.8s linear infinite;
+        margin-bottom: 20px;
+      }
+      @keyframes mobiguard-spin { to { transform: rotate(360deg); } }
+    </style>
+    <script type="module" crossorigin src="./assets/index-CTB8qnnK.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-CSg_vavU.css">
+  </head>
+  <body style="background-color: #020617;">
+    <div id="root">
+      <div class="mobiguard-preloader">
+        <div class="mobiguard-spinner"></div>
+        <div style="font-weight: 700; font-size: 16px; color: #f8fafc; letter-spacing: 0.5px; margin-bottom: 6px;">
+          MobiGuard
+        </div>
+        <div id="loader-status" style="font-size: 11px; color: #64748b; font-family: monospace;">
+          Loading security sandbox...
+        </div>
+      </div>
+    </div>
+    <script>
+      // Global MobiGuard Launch Controller
+      window.__launchMobiGuard = function() {
+        var spinner = document.querySelector('.mobiguard-spinner');
+        if (spinner) spinner.style.display = 'none';
+        var status = document.getElementById('loader-status');
+        if (status) {
+          status.innerHTML = '<span style="color: #06b6d4; font-weight: 600;">Opening Dashboard...</span>';
+        }
+        if (typeof window.__mountMobiGuard === 'function') {
+          window.__mountMobiGuard();
+        } else {
+          // If script still pending, schedule immediate mount or cache-bypass reload
+          window.__MOBIGUARD_AUTO_MOUNT = true;
+          setTimeout(function() {
+            if (!window.__MOBIGUARD_MOUNTED__) {
+              window.location.href = window.location.origin + window.location.pathname + '?v=' + Date.now();
+            }
+          }, 350);
+        }
+      };
+
+      // Transition to Browser Demo Mode status if local AI engine is inactive
+      setTimeout(function() {
+        var status = document.getElementById('loader-status');
+        if (status && !window.__MOBIGUARD_MOUNTED__) {
+          status.innerHTML = '<span style="color: #f59e0b; font-weight: 600;">Browser Demo Mode — Local AI unavailable</span>';
+        }
+      }, 500);
+
+      // Provide responsive Launch Dashboard button
+      setTimeout(function() {
+        var preloader = document.querySelector('.mobiguard-preloader');
+        if (preloader && !window.__MOBIGUARD_MOUNTED__ && !document.getElementById('manual-launch-btn')) {
+          var btn = document.createElement('button');
+          btn.id = 'manual-launch-btn';
+          btn.innerText = 'Launch MobiGuard Dashboard';
+          btn.style.cssText = 'margin-top: 16px; padding: 10px 20px; font-size: 13px; font-weight: 600; color: #020617; background: #06b6d4; border: none; border-radius: 10px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);';
+          btn.onclick = window.__launchMobiGuard;
+          preloader.appendChild(btn);
+        }
+      }, 800);
+
+      // Startup Error Boundary: Replace infinite spinner with auto-recovery or clear error + retry button
+      window.addEventListener('error', function(err) {
+        if (window.__MOBIGUARD_MOUNTED__) return;
+        var hasRefreshed = window.location.search.includes('v=') || window.location.search.includes('refresh=');
+        if (!hasRefreshed) {
+          console.warn('Stale asset detected, auto-refreshing with cache-buster...');
+          window.location.replace(window.location.origin + window.location.pathname + '?v=' + Date.now());
+          return;
+        }
+        var spinner = document.querySelector('.mobiguard-spinner');
+        if (spinner) spinner.style.display = 'none';
+        var status = document.getElementById('loader-status');
+        if (status) {
+          status.innerHTML = '<span style="color: #ef4444; font-weight: 600;">Browser Sandbox Notice</span><br><span style="font-size: 10px; color: #94a3b8;">Click Retry below to reload fresh assets</span>';
+        }
+        var preloader = document.querySelector('.mobiguard-preloader');
+        if (preloader && !document.getElementById('retry-btn')) {
+          var retryBtn = document.createElement('button');
+          retryBtn.id = 'retry-btn';
+          retryBtn.innerText = 'Retry';
+          retryBtn.style.cssText = 'margin-top: 10px; padding: 6px 16px; font-size: 12px; font-weight: 600; color: #f8fafc; background: #1e293b; border: 1px solid #475569; border-radius: 8px; cursor: pointer;';
+          retryBtn.onclick = function() {
+            window.location.href = window.location.origin + window.location.pathname + '?refresh=' + Date.now();
+          };
+          preloader.appendChild(retryBtn);
+        }
+      });
+    </script>
+  </body>
+</html>

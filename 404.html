@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MobiGuard</title>
+    <script>
+      // Automatically detect the repository base segment dynamically (e.g. /MobiGaurd/ or /MobiGuard/)
+      const pathSegments = window.location.pathname.split('/').filter(Boolean);
+      const repoBase = pathSegments.length > 0 ? '/' + pathSegments[0] + '/' : '/';
+      const query = window.location.search || '';
+      const hash = window.location.hash || '';
+      window.location.replace(repoBase + query + hash);
+    </script>
+  </head>
+  <body style="background-color: #020617; color: #94a3b8; font-family: system-ui; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0;">
+    <div style="text-align: center;">
+      <h2 style="color: #f8fafc; font-size: 16px; margin-bottom: 8px;">MobiGuard</h2>
+      <p style="font-size: 12px;">Loading secure sandbox...</p>
+    </div>
+  </body>
+</html>
